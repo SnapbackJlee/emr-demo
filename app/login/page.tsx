@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabaseClient";
+import { fadeIn, slideUp, scaleIn, smoothTransition } from "@/lib/animations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,9 +39,20 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <motion.div
+      className="flex min-h-screen flex-col"
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      variants={fadeIn}
+      transition={smoothTransition}
+    >
       {/* Navigation */}
-      <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <motion.nav
+        className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+        variants={slideUp}
+        transition={smoothTransition}
+      >
         <div className="container mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link href="/" className="flex items-center gap-2">
             <Heart className="h-6 w-6 text-primary" />
@@ -49,11 +62,17 @@ export default function LoginPage() {
             <Link href="/">Back to Home</Link>
           </Button>
         </div>
-      </nav>
+      </motion.nav>
 
       {/* Main Content */}
       <div className="flex flex-1 items-center justify-center bg-gradient-to-b from-primary/5 via-background to-background px-4 py-12 sm:px-6 lg:px-8">
-        <Card className="w-full max-w-md">
+        <motion.div
+          variants={scaleIn}
+          initial="initial"
+          animate="animate"
+          transition={smoothTransition}
+        >
+          <Card className="w-full max-w-md">
           <CardHeader className="space-y-1 text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
               <Heart className="h-6 w-6 text-primary" />
@@ -87,13 +106,22 @@ export default function LoginPage() {
                   disabled={loading}
                 />
               </div>
-              {msg && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Error</AlertTitle>
-                  <AlertDescription>{msg}</AlertDescription>
-                </Alert>
-              )}
+              <AnimatePresence>
+                {msg && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={smoothTransition}
+                  >
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Error</AlertTitle>
+                      <AlertDescription>{msg}</AlertDescription>
+                    </Alert>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? (
                   <>
@@ -107,7 +135,8 @@ export default function LoginPage() {
             </form>
           </CardContent>
         </Card>
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   );
 }

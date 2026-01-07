@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../../lib/supabaseClient";
+import { fadeIn, slideUp, slideDown, staggerContainer, staggerItem, scaleIn, smoothTransition } from "@/lib/animations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -112,9 +114,20 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <motion.div
+      className="flex min-h-screen flex-col"
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      variants={fadeIn}
+      transition={smoothTransition}
+    >
       {/* Navigation */}
-      <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <motion.nav
+        className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+        variants={slideDown}
+        transition={smoothTransition}
+      >
         <div className="container mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" asChild>
@@ -159,41 +172,78 @@ export default function ProfilePage() {
             </DropdownMenu>
           </div>
         </div>
-      </nav>
+      </motion.nav>
 
       {/* Main Content */}
       <main className="container mx-auto flex-1 px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-2xl">
-          <div className="mb-8">
+        <motion.div
+          className="mx-auto max-w-2xl"
+          variants={staggerContainer}
+          initial="initial"
+          animate="animate"
+        >
+          <motion.div className="mb-8" variants={staggerItem}>
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">My Staff Profile</h1>
             <p className="mt-2 text-muted-foreground">Manage your profile information</p>
-          </div>
+          </motion.div>
 
-          {loading ? (
-            <Card>
-              <CardContent className="flex items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-              {err && (
-                <Alert variant="destructive" className="mb-6">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Error</AlertTitle>
-                  <AlertDescription>{err}</AlertDescription>
-                </Alert>
-              )}
+          <AnimatePresence mode="wait">
+            {loading ? (
+              <motion.div
+                key="loading"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <Card>
+                  <CardContent className="flex items-center justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="content"
+                variants={staggerContainer}
+                initial="initial"
+                animate="animate"
+              >
+                <AnimatePresence>
+                  {err && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={smoothTransition}
+                      className="mb-6"
+                    >
+                      <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle>Error</AlertTitle>
+                        <AlertDescription>{err}</AlertDescription>
+                      </Alert>
+                    </motion.div>
+                  )}
 
-              {msg && (
-                <Alert className="mb-6 border-green-500 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100">
-                  <CheckCircle2 className="h-4 w-4" />
-                  <AlertTitle>Success</AlertTitle>
-                  <AlertDescription>{msg}</AlertDescription>
-                </Alert>
-              )}
+                  {msg && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={smoothTransition}
+                      className="mb-6"
+                    >
+                      <Alert className="border-green-500 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100">
+                        <CheckCircle2 className="h-4 w-4" />
+                        <AlertTitle>Success</AlertTitle>
+                        <AlertDescription>{msg}</AlertDescription>
+                      </Alert>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
-              <Card>
+                <motion.div variants={staggerItem}>
+                  <Card>
                 <CardHeader>
                   <CardTitle>Profile Information</CardTitle>
                   <CardDescription>Update your staff profile details</CardDescription>
@@ -252,10 +302,12 @@ export default function ProfilePage() {
                   </div>
                 </CardContent>
               </Card>
-            </>
-          )}
-        </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
       </main>
-    </div>
+    </motion.div>
   );
 }

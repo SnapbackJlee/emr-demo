@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabaseClient";
+import { fadeIn, slideUp, slideDown, staggerContainer, staggerItem, scaleIn, smoothTransition } from "@/lib/animations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,7 +47,6 @@ type Patient = {
   last_name: string;
   dob: string | null;
   status: string;
-  allergies: string | null;
   created_at: string;
 };
 
@@ -94,7 +95,7 @@ export default function PatientsPage() {
 
     const { data, error } = await supabase
       .from("patients")
-      .select("id, first_name, last_name, dob, status, allergies, created_at")
+      .select("id, first_name, last_name, dob, status, created_at")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -119,16 +120,38 @@ export default function PatientsPage() {
     setSaving(true);
 
     try {
+      // Create patient (without allergies field)
       const payload = {
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         dob: dob ? dob : null,
         status,
-        allergies: allergies.trim() ? allergies.trim() : null,
       };
 
       const { data, error } = await supabase.from("patients").insert(payload).select("id").single();
       if (error) throw error;
+
+      // Add allergies if provided
+      if (allergies.trim()) {
+        const allergenNames = allergies
+          .split("\n")
+          .map(line => line.trim())
+          .filter(line => line.length > 0);
+
+        if (allergenNames.length > 0 && data?.id) {
+          const allergiesToInsert = allergenNames.map(allergen_name => ({
+            patient_id: data.id,
+            allergen_name,
+            // Don't set severity - let it use the database default or remain null
+          }));
+
+          const { error: allergiesError } = await supabase
+            .from("allergies")
+            .insert(allergiesToInsert);
+
+          if (allergiesError) throw allergiesError;
+        }
+      }
 
       // reset
       setFirstName("");
@@ -149,9 +172,20 @@ export default function PatientsPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <motion.div
+      className="flex min-h-screen flex-col"
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      variants={fadeIn}
+      transition={smoothTransition}
+    >
       {/* Navigation */}
-      <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <motion.nav
+        className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+        variants={slideDown}
+        transition={smoothTransition}
+      >
         <div className="container mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link href="/" className="flex items-center gap-2">
             <Heart className="h-6 w-6 text-primary" />
@@ -185,13 +219,21 @@ export default function PatientsPage() {
             </DropdownMenu>
           </div>
         </div>
-      </nav>
+      </motion.nav>
 
       {/* Main Content */}
       <main className="container mx-auto flex-1 px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-6xl">
+        <motion.div
+          className="mx-auto max-w-6xl"
+          variants={staggerContainer}
+          initial="initial"
+          animate="animate"
+        >
           {/* Header */}
-          <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <motion.div
+            className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+            variants={staggerItem}
+          >
             <div>
               <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Patients</h1>
               <p className="mt-2 text-muted-foreground">Manage your patient records</p>
@@ -203,19 +245,36 @@ export default function PatientsPage() {
               <Plus className="mr-2 h-4 w-4" />
               {showCreateForm ? "Cancel" : "Add Patient"}
             </Button>
-          </div>
+          </motion.div>
 
-          {err && (
-            <Alert variant="destructive" className="mb-6">
+          <AnimatePresence>
+            {err && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={smoothTransition}
+              >
+                <Alert variant="destructive" className="mb-6">
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{err}</AlertDescription>
-            </Alert>
-          )}
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>{err}</AlertDescription>
+                </Alert>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Create Patient Form */}
-          {showCreateForm && (
-            <Card className="mb-8">
+          <AnimatePresence>
+            {showCreateForm && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={smoothTransition}
+                className="mb-8 overflow-hidden"
+              >
+                <Card className="mb-8">
               <CardHeader>
                 <CardTitle>Add New Patient</CardTitle>
                 <CardDescription>Enter patient information to create a new record</CardDescription>
@@ -293,17 +352,35 @@ export default function PatientsPage() {
                 </div>
               </CardContent>
             </Card>
-          )}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          <Separator className="mb-8" />
+          <motion.div variants={staggerItem}>
+            <Separator className="mb-8" />
+          </motion.div>
 
           {/* Patients List */}
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : patients.length === 0 ? (
-            <Card>
+          <AnimatePresence mode="wait">
+            {loading ? (
+              <motion.div
+                key="loading"
+                className="flex items-center justify-center py-12"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </motion.div>
+            ) : patients.length === 0 ? (
+              <motion.div
+                key="empty"
+                variants={scaleIn}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+              >
+                <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Users className="mb-4 h-12 w-12 text-muted-foreground" />
                 <h3 className="mb-2 text-lg font-semibold">No patients yet</h3>
@@ -316,14 +393,27 @@ export default function PatientsPage() {
                 </Button>
               </CardContent>
             </Card>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {patients.map((p) => (
-                <Card
-                  key={p.id}
-                  className="cursor-pointer transition-all hover:shadow-md"
-                  onClick={() => router.push(`/patients/${p.id}`)}
-                >
+              </motion.div>
+            ) : (
+              <motion.div
+                key="list"
+                className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+                variants={staggerContainer}
+                initial="initial"
+                animate="animate"
+              >
+                {patients.map((p, index) => (
+                  <motion.div
+                    key={p.id}
+                    variants={staggerItem}
+                    whileHover={{ scale: 1.02, y: -4 }}
+                    whileTap={{ scale: 0.98 }}
+                    transition={smoothTransition}
+                  >
+                    <Card
+                      className="cursor-pointer transition-all hover:shadow-md"
+                      onClick={() => router.push(`/patients/${p.id}`)}
+                    >
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -365,11 +455,13 @@ export default function PatientsPage() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
-            </div>
-          )}
-        </div>
+                  </motion.div>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
       </main>
-    </div>
+    </motion.div>
   );
 }

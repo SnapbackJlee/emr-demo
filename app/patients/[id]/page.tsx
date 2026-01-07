@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabaseClient";
+import { fadeIn, slideUp, slideDown, staggerContainer, staggerItem, scaleIn, smoothTransition } from "@/lib/animations";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +21,14 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Heart,
   ArrowLeft,
   LogOut,
@@ -32,6 +42,7 @@ import {
   Calendar,
   AlertTriangle,
   CheckCircle2,
+  Trash2,
 } from "lucide-react";
 
 type Patient = {
@@ -40,7 +51,16 @@ type Patient = {
   last_name: string;
   dob: string | null;
   status: string;
-  allergies: string | null;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+type Allergy = {
+  id: string;
+  patient_id: string;
+  allergen_name: string;
+  severity: string | null;
+  reaction: string | null;
   created_at: string;
   updated_at?: string | null;
 };
@@ -79,7 +99,8 @@ export default function PatientDetailPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // allergies edit
+  // allergies
+  const [allergies, setAllergies] = useState<Allergy[]>([]);
   const [editingAllergies, setEditingAllergies] = useState(false);
   const [allergiesDraft, setAllergiesDraft] = useState("");
   const [savingAllergies, setSavingAllergies] = useState(false);
@@ -89,6 +110,10 @@ export default function PatientDetailPage() {
   const [noteText, setNoteText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
 
+  // delete patient
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   const title = useMemo(() => {
     if (!patient) return "Patient";
     return `${patient.last_name}, ${patient.first_name}`;
@@ -97,7 +122,7 @@ export default function PatientDetailPage() {
   const loadPatient = useCallback(async (id: string) => {
     const { data, error } = await supabase
       .from("patients")
-      .select("id, first_name, last_name, dob, status, allergies, created_at, updated_at")
+      .select("id, first_name, last_name, dob, status, created_at, updated_at")
       .eq("id", id)
       .single();
 
@@ -105,8 +130,22 @@ export default function PatientDetailPage() {
 
     const p = data as Patient;
     setPatient(p);
-    setAllergiesDraft(p.allergies ?? "");
     setEditingAllergies(false);
+  }, []);
+
+  const loadAllergies = useCallback(async (id: string) => {
+    const { data, error } = await supabase
+      .from("allergies")
+      .select("id, patient_id, allergen_name, severity, reaction, created_at, updated_at")
+      .eq("patient_id", id)
+      .order("allergen_name", { ascending: true });
+
+    if (error) throw error;
+    
+    const allergyList = (data as Allergy[]) ?? [];
+    setAllergies(allergyList);
+    // Set draft to display format (one per line)
+    setAllergiesDraft(allergyList.map(a => a.allergen_name).join("\n"));
   }, []);
 
   const loadNotes = useCallback(async (id: string) => {
@@ -124,13 +163,13 @@ export default function PatientDetailPage() {
     setErr(null);
     setLoading(true);
     try {
-      await Promise.all([loadPatient(id), loadNotes(id)]);
+      await Promise.all([loadPatient(id), loadAllergies(id), loadNotes(id)]);
     } catch (e: any) {
       setErr(e?.message ?? "Failed to load patient.");
     } finally {
       setLoading(false);
     }
-  }, [loadPatient, loadNotes]);
+  }, [loadPatient, loadAllergies, loadNotes]);
 
   useEffect(() => {
     if (!patientId) return;
@@ -143,27 +182,64 @@ export default function PatientDetailPage() {
   }
 
   const saveAllergies = useCallback(async () => {
-    if (!patient) return;
+    if (!patientId) return;
 
     setSavingAllergies(true);
     setErr(null);
 
     try {
-      const cleaned = allergiesDraft.trim();
-      const { error } = await supabase
-        .from("patients")
-        .update({ allergies: cleaned ? cleaned : null })
-        .eq("id", patient.id);
+      // Parse the draft text into individual allergen names (one per line)
+      const allergenNames = allergiesDraft
+        .split("\n")
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
 
-      if (error) throw error;
+      // Get current allergies to compare
+      const currentAllergenNames = new Set(allergies.map(a => a.allergen_name.toLowerCase()));
+      const newAllergenNames = new Set(allergenNames.map(name => name.toLowerCase()));
 
-      await loadPatient(patient.id);
+      // Find allergies to delete (in current but not in new)
+      const toDelete = allergies.filter(
+        a => !newAllergenNames.has(a.allergen_name.toLowerCase())
+      );
+
+      // Find allergies to add (in new but not in current)
+      const toAdd = allergenNames.filter(
+        name => !currentAllergenNames.has(name.toLowerCase())
+      );
+
+      // Delete removed allergies
+      if (toDelete.length > 0) {
+        const { error } = await supabase
+          .from("allergies")
+          .delete()
+          .in("id", toDelete.map(a => a.id));
+
+        if (error) throw error;
+      }
+
+      // Add new allergies
+      if (toAdd.length > 0) {
+        const newAllergies = toAdd.map(allergen_name => ({
+          patient_id: patientId,
+          allergen_name,
+          // Don't set severity - let it use the database default or remain null
+        }));
+
+        const { error } = await supabase.from("allergies").insert(newAllergies);
+
+        if (error) throw error;
+      }
+
+      // Reload allergies to get updated list
+      await loadAllergies(patientId);
+      setEditingAllergies(false);
     } catch (e: any) {
       setErr(e?.message ?? "Could not save allergies.");
     } finally {
       setSavingAllergies(false);
     }
-  }, [patient, allergiesDraft, loadPatient]);
+  }, [patientId, allergiesDraft, allergies, loadAllergies]);
 
   const addNote = useCallback(async () => {
     if (!noteText.trim()) return;
@@ -188,10 +264,44 @@ export default function PatientDetailPage() {
     }
   }, [noteText, patientId, loadNotes]);
 
+  const deletePatient = useCallback(async () => {
+    if (!patientId) return;
+
+    setDeleting(true);
+    setErr(null);
+
+    try {
+      // Use the database function to delete patient safely
+      const { error } = await supabase.rpc("delete_patient", {
+        patient_uuid: patientId,
+      });
+
+      if (error) throw error;
+
+      // Redirect to patients list
+      router.push("/patients");
+    } catch (e: any) {
+      setErr(e?.message ?? "Could not delete patient.");
+      setDeleting(false);
+      setShowDeleteDialog(false);
+    }
+  }, [patientId, router]);
+
   return (
-    <div className="flex min-h-screen flex-col">
+    <motion.div
+      className="flex min-h-screen flex-col"
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      variants={fadeIn}
+      transition={smoothTransition}
+    >
       {/* Navigation */}
-      <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <motion.nav
+        className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+        variants={slideDown}
+        transition={smoothTransition}
+      >
         <div className="container mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" asChild>
@@ -230,40 +340,77 @@ export default function PatientDetailPage() {
             </DropdownMenu>
           </div>
         </div>
-      </nav>
+      </motion.nav>
 
       {/* Main Content */}
       <main className="container mx-auto flex-1 px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-4xl">
-          {err && (
-            <Alert variant="destructive" className="mb-6">
+        <motion.div
+          className="mx-auto max-w-4xl"
+          variants={staggerContainer}
+          initial="initial"
+          animate="animate"
+        >
+          <AnimatePresence>
+            {err && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={smoothTransition}
+              >
+                <Alert variant="destructive" className="mb-6">
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{err}</AlertDescription>
-            </Alert>
-          )}
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>{err}</AlertDescription>
+                </Alert>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : !patient ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <AlertCircle className="mb-4 h-12 w-12 text-muted-foreground" />
-                <h3 className="mb-2 text-lg font-semibold">Patient not found</h3>
-                <p className="mb-4 text-center text-muted-foreground">
-                  The patient record you're looking for doesn't exist.
-                </p>
-                <Button asChild>
-                  <Link href="/patients">Back to Patients</Link>
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-              {/* Patient Info Card */}
-              <Card className="mb-6">
+          <AnimatePresence mode="wait">
+            {loading && (
+              <motion.div
+                key="loading"
+                className="flex items-center justify-center py-12"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </motion.div>
+            )}
+            {!loading && !patient && (
+              <motion.div
+                key="not-found"
+                variants={scaleIn}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+              >
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <AlertCircle className="mb-4 h-12 w-12 text-muted-foreground" />
+                    <h3 className="mb-2 text-lg font-semibold">Patient not found</h3>
+                    <p className="mb-4 text-center text-muted-foreground">
+                      The patient record you're looking for doesn't exist.
+                    </p>
+                    <Button asChild>
+                      <Link href="/patients">Back to Patients</Link>
+                    </Button>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+            {!loading && patient && (
+              <motion.div
+                key="patient"
+                variants={staggerContainer}
+                initial="initial"
+                animate="animate"
+              >
+                {/* Patient Info Card */}
+                <motion.div variants={staggerItem}>
+                  <Card className="mb-6">
                 <CardHeader>
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -282,6 +429,15 @@ export default function PatientDetailPage() {
                         </span>
                       </CardDescription>
                     </div>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => setShowDeleteDialog(true)}
+                      className="w-full sm:w-auto"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete Patient
+                    </Button>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -321,9 +477,11 @@ export default function PatientDetailPage() {
                   </div>
                 </CardContent>
               </Card>
+                </motion.div>
 
-              {/* Allergies Card */}
-              <Card className="mb-6">
+                {/* Allergies Card */}
+                <motion.div variants={staggerItem}>
+                  <Card className="mb-6">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
@@ -345,7 +503,7 @@ export default function PatientDetailPage() {
                           size="sm"
                           onClick={() => {
                             setEditingAllergies(false);
-                            setAllergiesDraft(patient.allergies ?? "");
+                            setAllergiesDraft(allergies.map(a => a.allergen_name).join("\n"));
                           }}
                         >
                           <X className="mr-2 h-4 w-4" />
@@ -366,9 +524,27 @@ export default function PatientDetailPage() {
                 <CardContent>
                   {!editingAllergies ? (
                     <div className="rounded-lg border bg-muted/50 p-4">
-                      <p className="whitespace-pre-wrap text-sm">
-                        {patient.allergies ? patient.allergies : "No allergies listed."}
-                      </p>
+                      {allergies.length > 0 ? (
+                        <ul className="space-y-1">
+                          {allergies.map((allergy) => (
+                            <li key={allergy.id} className="text-sm">
+                              <span className="font-medium">{allergy.allergen_name}</span>
+                              {allergy.severity && allergy.severity !== "moderate" && (
+                                <span className="ml-2 text-xs text-muted-foreground">
+                                  ({allergy.severity})
+                                </span>
+                              )}
+                              {allergy.reaction && (
+                                <span className="ml-2 text-xs text-muted-foreground">
+                                  - {allergy.reaction}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No allergies listed.</p>
+                      )}
                     </div>
                   ) : (
                     <Textarea
@@ -381,12 +557,15 @@ export default function PatientDetailPage() {
                   )}
                 </CardContent>
               </Card>
+                </motion.div>
 
-              <Separator className="mb-6" />
+                <motion.div variants={staggerItem}>
+                  <Separator className="mb-6" />
+                </motion.div>
 
-              {/* Notes Section */}
-              <div className="mb-6">
-                <h2 className="mb-4 text-2xl font-bold">Clinical Notes</h2>
+                {/* Notes Section */}
+                <motion.div className="mb-6" variants={staggerItem}>
+                  <h2 className="mb-4 text-2xl font-bold">Clinical Notes</h2>
                 <Card className="mb-6">
                   <CardHeader>
                     <CardTitle>Add New Note</CardTitle>
@@ -427,10 +606,21 @@ export default function PatientDetailPage() {
                     </CardContent>
                   </Card>
                 ) : (
-                  <div className="space-y-4">
-                    {notes.map((n) => (
-                      <Card key={n.id}>
-                        <CardHeader>
+                  <motion.div
+                    className="space-y-4"
+                    variants={staggerContainer}
+                    initial="initial"
+                    animate="animate"
+                  >
+                    {notes.map((n, index) => (
+                      <motion.div
+                        key={n.id}
+                        variants={staggerItem}
+                        whileHover={{ scale: 1.01 }}
+                        transition={smoothTransition}
+                      >
+                        <Card>
+                          <CardHeader>
                           <div className="flex items-start justify-between">
                             <CardTitle className="text-lg">Note</CardTitle>
                             {n.signed_at && (
@@ -460,14 +650,51 @@ export default function PatientDetailPage() {
                           </div>
                         </CardContent>
                       </Card>
+                    </motion.div>
                     ))}
-                  </div>
+                  </motion.div>
                 )}
-              </div>
-            </>
-          )}
-        </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Delete Confirmation Dialog */}
+          <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Delete Patient</DialogTitle>
+                <DialogDescription>
+                  Are you sure you want to delete <strong>{title}</strong>? This action cannot be undone.
+                  This will permanently delete the patient record and all associated allergies and notes.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDeleteDialog(false)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={deletePatient} disabled={deleting}>
+                  {deleting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete Patient
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </motion.div>
       </main>
-    </div>
+    </motion.div>
   );
 }
