@@ -32,7 +32,7 @@ export default function Home() {
               <Link href="/login">Sign In</Link>
             </Button>
             <Button asChild>
-              <Link href="/login">Get Started</Link>
+              <Link href="/signup">Sign Up</Link>
             </Button>
           </div>
         </div>
@@ -77,8 +77,8 @@ export default function Home() {
               variants={staggerItem}
             >
               <Button size="lg" asChild className="w-full sm:w-auto">
-                <Link href="/login">
-                  Get Started
+                <Link href="/signup">
+                  Sign Up
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
@@ -172,12 +172,17 @@ export default function Home() {
             <p className="mb-8 text-lg text-muted-foreground">
               Join healthcare providers who trust our platform for their medical records management.
             </p>
-            <Button size="lg" asChild>
-              <Link href="/login">
-                Sign In to Your Account
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
+            <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+              <Button size="lg" asChild>
+                <Link href="/signup">
+                  Create Account
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" asChild>
+                <Link href="/login">Sign In</Link>
+              </Button>
+            </div>
           </div>
         </div>
       </motion.section>
